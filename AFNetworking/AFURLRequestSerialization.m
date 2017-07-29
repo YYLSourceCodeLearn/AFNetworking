@@ -118,25 +118,32 @@ FOUNDATION_EXPORT NSArray * AFQueryStringPairsFromKeyAndValue(NSString *key, id 
 
 NSString * AFQueryStringFromParameters(NSDictionary *parameters) {
     NSMutableArray *mutablePairs = [NSMutableArray array];
+    
+    //把参数给 AFQueryStringPairsFromDictionary， 拿到 AF 的一个类型的数据就是一个 key，value 对象，在 URLEncodedStringValue 拼接 keyValue，一个加到数组里
     for (AFQueryStringPair *pair in AFQueryStringPairsFromDictionary(parameters)) {
         [mutablePairs addObject:[pair URLEncodedStringValue]];
     }
-
+    //拆分数组返回参数字符串
     return [mutablePairs componentsJoinedByString:@"&"];
 }
 
 NSArray * AFQueryStringPairsFromDictionary(NSDictionary *dictionary) {
+    //忘下调用
     return AFQueryStringPairsFromKeyAndValue(nil, dictionary);
 }
 
 NSArray * AFQueryStringPairsFromKeyAndValue(NSString *key, id value) {
     NSMutableArray *mutableQueryStringComponents = [NSMutableArray array];
 
+    //根据需要排列的对象的 description 来进行升序排列，并且 selector 使用的是 compare
+    //因为对象的 description 返回的是 NSString，所以此处 compare:使用的是 NSString 的 compare函数
     NSSortDescriptor *sortDescriptor = [NSSortDescriptor sortDescriptorWithKey:@"description" ascending:YES selector:@selector(compare:)];
 
+    //判断 value 是什么类型，然后去递归调用自己，直到解析的是除了 array dic set 以外的元素，然后把得到的参数返回
     if ([value isKindOfClass:[NSDictionary class]]) {
         NSDictionary *dictionary = value;
         // Sort dictionary keys to ensure consistent ordering in query string, which is important when deserializing potentially ambiguous sequences, such as an array of dictionaries
+        //拿到
         for (id nestedKey in [dictionary.allKeys sortedArrayUsingDescriptors:@[ sortDescriptor ]]) {
             id nestedValue = dictionary[nestedKey];
             if (nestedValue) {
@@ -175,15 +182,18 @@ static NSArray * AFHTTPRequestSerializerObservedKeyPaths() {
     static NSArray *_AFHTTPRequestSerializerObservedKeyPaths = nil;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
+        //此处需要 observer 的 keypath 为allowsCellularAccess，cachePolicy，HTTPShouldHandleCookies，HTTPShouldUsePipelining，networkServiceType，timeoutInterval
+        //其实这个函数就是封装了一些属性的名字，这些都是 NSURLRequest 的属性
         _AFHTTPRequestSerializerObservedKeyPaths = @[NSStringFromSelector(@selector(allowsCellularAccess)), NSStringFromSelector(@selector(cachePolicy)), NSStringFromSelector(@selector(HTTPShouldHandleCookies)), NSStringFromSelector(@selector(HTTPShouldUsePipelining)), NSStringFromSelector(@selector(networkServiceType)), NSStringFromSelector(@selector(timeoutInterval))];
     });
-
+    //就是一个数组里面装了很多方法的名字
     return _AFHTTPRequestSerializerObservedKeyPaths;
 }
 
 static void *AFHTTPRequestSerializerObserverContext = &AFHTTPRequestSerializerObserverContext;
 
 @interface AFHTTPRequestSerializer ()
+//自己设置的 request 属性的集合
 @property (readwrite, nonatomic, strong) NSMutableSet *mutableObservedChangedKeyPaths;
 @property (readwrite, nonatomic, strong) NSMutableDictionary *mutableHTTPRequestHeaders;
 @property (readwrite, nonatomic, strong) dispatch_queue_t requestHeaderModificationQueue;
@@ -240,7 +250,10 @@ static void *AFHTTPRequestSerializerObserverContext = &AFHTTPRequestSerializerOb
     // HTTP Method Definitions; see http://www.w3.org/Protocols/rfc2616/rfc2616-sec9.html
     self.HTTPMethodsEncodingParametersInURI = [NSSet setWithObjects:@"GET", @"HEAD", @"DELETE", nil];
 
+    //对当前类和 NSURLRequest 相关的那些属性添加 KVO 监听
+    //每次都会重置变化
     self.mutableObservedChangedKeyPaths = [NSMutableSet set];
+    //给这些方法添加观察者为自己，就是 request 的各种属性， set 方法
     for (NSString *keyPath in AFHTTPRequestSerializerObservedKeyPaths()) {
         if ([self respondsToSelector:NSSelectorFromString(keyPath)]) {
             [self addObserver:self forKeyPath:keyPath options:NSKeyValueObservingOptionNew context:AFHTTPRequestSerializerObserverContext];
@@ -357,6 +370,7 @@ forHTTPHeaderField:(NSString *)field
                                 parameters:(id)parameters
                                      error:(NSError *__autoreleasing *)error
 {
+    //断言，debug 模式下，如果缺少参数，crash
     NSParameterAssert(method);
     NSParameterAssert(URLString);
 
@@ -365,14 +379,18 @@ forHTTPHeaderField:(NSString *)field
     NSParameterAssert(url);
 
     NSMutableURLRequest *mutableRequest = [[NSMutableURLRequest alloc] initWithURL:url];
+    //设置 request 的请求类型 get post put
     mutableRequest.HTTPMethod = method;
-
+    
+    //将 request 的各种属性循环遍历
     for (NSString *keyPath in AFHTTPRequestSerializerObservedKeyPaths()) {
+        //如果自己观察到的发生变化的属性，在这些方法里
         if ([self.mutableObservedChangedKeyPaths containsObject:keyPath]) {
+            //把给自己设置的属性给 request 设置
             [mutableRequest setValue:[self valueForKeyPath:keyPath] forKey:keyPath];
         }
     }
-
+    //将传入的 parameters 进行编码，并添加到 request 中
     mutableRequest = [[self requestBySerializingRequest:mutableRequest withParameters:parameters error:error] mutableCopy];
 
 	return mutableRequest;
@@ -478,15 +496,17 @@ forHTTPHeaderField:(NSString *)field
     NSParameterAssert(request);
 
     NSMutableURLRequest *mutableRequest = [request mutableCopy];
-
+    //从自己的 head 里去遍历，如果有值则设置给 request 的 head
     [self.HTTPRequestHeaders enumerateKeysAndObjectsUsingBlock:^(id field, id value, BOOL * __unused stop) {
         if (![request valueForHTTPHeaderField:field]) {
             [mutableRequest setValue:value forHTTPHeaderField:field];
         }
     }];
 
+    // 来把各种类型的参数，array dic set 转化成字符串，给 request
     NSString *query = nil;
     if (parameters) {
+        //自定义解析方式
         if (self.queryStringSerialization) {
             NSError *serializationError;
             query = self.queryStringSerialization(request, parameters, &serializationError);
@@ -499,6 +519,7 @@ forHTTPHeaderField:(NSString *)field
                 return nil;
             }
         } else {
+            //默认解析方式
             switch (self.queryStringSerializationStyle) {
                 case AFHTTPRequestQueryStringDefaultStyle:
                     query = AFQueryStringFromParameters(parameters);
@@ -507,18 +528,21 @@ forHTTPHeaderField:(NSString *)field
         }
     }
 
+    //最后判断该 request 中是否包含 GET、HEAD、DELETE（都包含在 HTTPMethodsEncodingParameterInURI）。 因为这几个 methods 的 query 里拼接到 url 后面的。而 POST、PUT 是把 query拼接到 http body中的
     if ([self.HTTPMethodsEncodingParametersInURI containsObject:[[request HTTPMethod] uppercaseString]]) {
         if (query && query.length > 0) {
             mutableRequest.URL = [NSURL URLWithString:[[mutableRequest.URL absoluteString] stringByAppendingFormat:mutableRequest.URL.query ? @"&%@" : @"?%@", query]];
         }
     } else {
         // #2864: an empty string is a valid x-www-form-urlencoded payload
+        //post put 请求
         if (!query) {
             query = @"";
         }
         if (![mutableRequest valueForHTTPHeaderField:@"Content-Type"]) {
             [mutableRequest setValue:@"application/x-www-form-urlencoded" forHTTPHeaderField:@"Content-Type"];
         }
+        //设置请求体
         [mutableRequest setHTTPBody:[query dataUsingEncoding:self.stringEncoding]];
     }
 
@@ -540,6 +564,7 @@ forHTTPHeaderField:(NSString *)field
                         change:(NSDictionary *)change
                        context:(void *)context
 {
+    //当观察到这些 set 方法被调用了，而且不为 Null 就会添加到集合里，否则删除
     if (context == AFHTTPRequestSerializerObserverContext) {
         if ([change[NSKeyValueChangeNewKey] isEqual:[NSNull null]]) {
             [self.mutableObservedChangedKeyPaths removeObject:keyPath];

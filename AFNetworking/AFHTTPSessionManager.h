@@ -73,6 +73,7 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+//AFHTTPSessionManager 继承 AFURLSessionManager 的，一般做网络请求都用该类，但是它本身是没有做实事的，只是做了一些简单的封装，把请求逻辑交给父类 AFURLSessionManager 或者其它类去做
 @interface AFHTTPSessionManager : AFURLSessionManager <NSSecureCoding, NSCopying>
 
 /**
