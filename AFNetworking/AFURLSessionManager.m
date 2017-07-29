@@ -1261,7 +1261,14 @@ didBecomeDownloadTask:(NSURLSessionDownloadTask *)downloadTask
  
  函数讨论：
  当 task 接收到所有期望的数据后，session 会调用此代理方法。如果你没有实现该方法，那么就会使用创建 session时使用的 configuration 对象决定缓存策略。这个代理方法最初的目的是为了阻止缓存特定的 URLs 或者修改 NSCacheURLResponse 对象相关的 userInfo字典
- 该方法只会当 request 决定缓存 resposne 时候调用，作为准则，reposne 只会当以下都成立的时候返回缓存
+ 该方法只会当 request 决定缓存 resposne 时候调用，作为准则，reposne 只会当以下都成立的时候返回缓存:
+ 该 request 是 HTTP 或 HTTPS 的 URL请求（或者你自定义的网络协议，并且确保该协议支持缓存）
+ 确保 request 请求是成功的（返回 status code 为200-299）
+ 返回的 response 是来自服务器端的，而非缓存中本省就有的
+ 
+ 提供的 NSURLRequest 对象的缓存策略要允许进行缓存
+ 服务器返回的 response中与缓存相关的 header 要允许缓存
+ 该 response 的大小不能比提供的缓存控件大太多（比如你提供了一个磁盘缓存，那么 resposne 大小一定不能比磁盘缓存控件还要大5%）
  */
 - (void)URLSession:(NSURLSession *)session
           dataTask:(NSURLSessionDataTask *)dataTask
@@ -1290,17 +1297,20 @@ didBecomeDownloadTask:(NSURLSessionDownloadTask *)downloadTask
 
 #pragma mark - NSURLSessionDownloadDelegate
 
+//下载完成的时候调用
 - (void)URLSession:(NSURLSession *)session
       downloadTask:(NSURLSessionDownloadTask *)downloadTask
 didFinishDownloadingToURL:(NSURL *)location
 {
     AFURLSessionManagerTaskDelegate *delegate = [self delegateForTask:downloadTask];
+    //这个是 session 的，也就是全局的，后面的个人代理也会做同样的这件事
     if (self.downloadTaskDidFinishDownloading) {
+        //调用自定的 block 拿到文件存储的地址
         NSURL *fileURL = self.downloadTaskDidFinishDownloading(session, downloadTask, location);
         if (fileURL) {
             delegate.downloadFileURL = fileURL;
             NSError *error = nil;
-            
+            //从临时的下载路径移动至我们需要的路径
             if (![[NSFileManager defaultManager] moveItemAtURL:location toURL:fileURL error:&error]) {
                 [[NSNotificationCenter defaultCenter] postNotificationName:AFURLSessionDownloadTaskDidFailToMoveFileNotification object:downloadTask userInfo:error.userInfo];
             }
@@ -1308,12 +1318,23 @@ didFinishDownloadingToURL:(NSURL *)location
             return;
         }
     }
-
+    //转发代理
     if (delegate) {
         [delegate URLSession:session downloadTask:downloadTask didFinishDownloadingToURL:location];
     }
 }
 
+//周期性的通知下载进度调用
+
+/**
+ Description
+
+ @param session session description
+ @param downloadTask downloadTask description
+ @param bytesWritten 表示自上次调用该方法后，接收到的数据字节数
+ @param totalBytesWritten 表示目前已经接收到的数据字节数
+ @param totalBytesExpectedToWrite 表示期望收到的文件总字节数，是由 Content-Length header 提供，如果没有提供，默认是 NSURLSessionTransferSizeUnknown
+ */
 - (void)URLSession:(NSURLSession *)session
       downloadTask:(NSURLSessionDownloadTask *)downloadTask
       didWriteData:(int64_t)bytesWritten
@@ -1332,6 +1353,8 @@ totalBytesExpectedToWrite:(int64_t)totalBytesExpectedToWrite
     }
 }
 
+
+//当下载被取消或者失败后重新恢复下载时调用
 - (void)URLSession:(NSURLSession *)session
       downloadTask:(NSURLSessionDownloadTask *)downloadTask
  didResumeAtOffset:(int64_t)fileOffset
@@ -1343,7 +1366,7 @@ expectedTotalBytes:(int64_t)expectedTotalBytes
     if (delegate) {
         [delegate URLSession:session downloadTask:downloadTask didResumeAtOffset:fileOffset expectedTotalBytes:expectedTotalBytes];
     }
-
+    //交给自定义的 Block 调用
     if (self.downloadTaskDidResume) {
         self.downloadTaskDidResume(session, downloadTask, fileOffset, expectedTotalBytes);
     }
