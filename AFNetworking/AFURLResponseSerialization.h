@@ -40,6 +40,7 @@ NS_ASSUME_NONNULL_BEGIN
 
  @return The object decoded from the specified response data.
  */
+//把我们请求到的data转换为我们需要的类型的数据方法
 - (nullable id)responseObjectForResponse:(nullable NSURLResponse *)response
                            data:(nullable NSData *)data
                           error:(NSError * _Nullable __autoreleasing *)error NS_SWIFT_NOTHROW;

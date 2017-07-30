@@ -35,6 +35,7 @@ NSString * const AFURLResponseSerializationErrorDomain = @"com.alamofire.error.s
 NSString * const AFNetworkingOperationFailingURLResponseErrorKey = @"com.alamofire.serialization.response.error.response";
 NSString * const AFNetworkingOperationFailingURLResponseDataErrorKey = @"com.alamofire.serialization.response.error.data";
 
+//把json解析的错误 赋值给我们需要返回的error上
 static NSError * AFErrorWithUnderlyingError(NSError *error, NSError *underlyingError) {
     if (!error) {
         return underlyingError;
@@ -50,10 +51,13 @@ static NSError * AFErrorWithUnderlyingError(NSError *error, NSError *underlyingE
     return [[NSError alloc] initWithDomain:error.domain code:error.code userInfo:mutableUserInfo];
 }
 
+//判断是不是我们自己之前生成的错误信息,是的话返回YES
 static BOOL AFErrorOrUnderlyingErrorHasCodeInDomain(NSError *error, NSInteger code, NSString *domain) {
+    //判断错误域名和传过来的域名是否一致, 错误code是否一致
     if ([error.domain isEqualToString:domain] && error.code == code) {
         return YES;
     } else if (error.userInfo[NSUnderlyingErrorKey]) {
+        //如果userinfo的NSUnderlyingErrorKey有值, 则在判断一次
         return AFErrorOrUnderlyingErrorHasCodeInDomain(error.userInfo[NSUnderlyingErrorKey], code, domain);
     }
 
@@ -61,20 +65,26 @@ static BOOL AFErrorOrUnderlyingErrorHasCodeInDomain(NSError *error, NSInteger co
 }
 
 static id AFJSONObjectByRemovingKeysWithNullValues(id JSONObject, NSJSONReadingOptions readingOptions) {
+    
+    //分数组和字典
     if ([JSONObject isKindOfClass:[NSArray class]]) {
+        //生成一个数组 只需要JSONObject.count个
         NSMutableArray *mutableArray = [NSMutableArray arrayWithCapacity:[(NSArray *)JSONObject count]];
         for (id value in (NSArray *)JSONObject) {
+            //调用自己
             [mutableArray addObject:AFJSONObjectByRemovingKeysWithNullValues(value, readingOptions)];
         }
-
+        //看我们解析类型是mutable还是非mutalbeable, 返回metableArray或者array
         return (readingOptions & NSJSONReadingMutableContainers) ? mutableArray : [NSArray arrayWithArray:mutableArray];
     } else if ([JSONObject isKindOfClass:[NSDictionary class]]) {
         NSMutableDictionary *mutableDictionary = [NSMutableDictionary dictionaryWithDictionary:JSONObject];
         for (id <NSCopying> key in [(NSDictionary *)JSONObject allKeys]) {
             id value = (NSDictionary *)JSONObject[key];
+            //value空则移除
             if (!value || [value isEqual:[NSNull null]]) {
                 [mutableDictionary removeObjectForKey:key];
             } else if ([value isKindOfClass:[NSArray class]] || [value isKindOfClass:[NSDictionary class]]) {
+                //如果是数组还是去调用自己
                 mutableDictionary[key] = AFJSONObjectByRemovingKeysWithNullValues(value, readingOptions);
             }
         }
@@ -105,18 +115,27 @@ static id AFJSONObjectByRemovingKeysWithNullValues(id JSONObject, NSJSONReadingO
 
 #pragma mark -
 
+//判断是不是可接受类型和可接受code 不是则填充error
 - (BOOL)validateResponse:(NSHTTPURLResponse *)response
                     data:(NSData *)data
                    error:(NSError * __autoreleasing *)error
 {
+    //response是否合法标识
     BOOL responseIsValid = YES;
+    //验证的error
     NSError *validationError = nil;
-
+    //如果存在且是NSHTTPURLResponse
     if (response && [response isKindOfClass:[NSHTTPURLResponse class]]) {
+        //主要判断自己能接收的数据类型和response的数据类型是否匹配
+        //如果有接收的数据类型,如果不匹配response,而且响应类型不为空,数据长度不为0
         if (self.acceptableContentTypes && ![self.acceptableContentTypes containsObject:[response MIMEType]] &&
             !([response MIMEType] == nil && [data length] == 0)) {
 
+            //进入if快说明解析数据肯定是失败的 这时候要把解析错误信息放到error里
+            //如果数据长度 >0, 而且有响应url
             if ([data length] > 0 && [response URL]) {
+                
+                //错误信息字典, 填充一些错误信息
                 NSMutableDictionary *mutableUserInfo = [@{
                                                           NSLocalizedDescriptionKey: [NSString stringWithFormat:NSLocalizedStringFromTable(@"Request failed: unacceptable content-type: %@", @"AFNetworking", nil), [response MIMEType]],
                                                           NSURLErrorFailingURLErrorKey:[response URL],
@@ -125,14 +144,16 @@ static id AFJSONObjectByRemovingKeysWithNullValues(id JSONObject, NSJSONReadingO
                 if (data) {
                     mutableUserInfo[AFNetworkingOperationFailingURLResponseDataErrorKey] = data;
                 }
-
+                //生成错误
                 validationError = AFErrorWithUnderlyingError([NSError errorWithDomain:AFURLResponseSerializationErrorDomain code:NSURLErrorCannotDecodeContentData userInfo:mutableUserInfo], validationError);
             }
-
+            //返回标识
             responseIsValid = NO;
         }
-
+        //判断自己可以接收的状态码
+        //如果和response的状态码不匹配,则进入if
         if (self.acceptableStatusCodes && ![self.acceptableStatusCodes containsIndex:(NSUInteger)response.statusCode] && [response URL]) {
+            //填写错误信息字典
             NSMutableDictionary *mutableUserInfo = [@{
                                                NSLocalizedDescriptionKey: [NSString stringWithFormat:NSLocalizedStringFromTable(@"Request failed: %@ (%ld)", @"AFNetworking", nil), [NSHTTPURLResponse localizedStringForStatusCode:response.statusCode], (long)response.statusCode],
                                                NSURLErrorFailingURLErrorKey:[response URL],
@@ -142,17 +163,17 @@ static id AFJSONObjectByRemovingKeysWithNullValues(id JSONObject, NSJSONReadingO
             if (data) {
                 mutableUserInfo[AFNetworkingOperationFailingURLResponseDataErrorKey] = data;
             }
-
+            //生成错误
             validationError = AFErrorWithUnderlyingError([NSError errorWithDomain:AFURLResponseSerializationErrorDomain code:NSURLErrorBadServerResponse userInfo:mutableUserInfo], validationError);
-
+            //返回标识
             responseIsValid = NO;
         }
     }
-
+    //给我们传过来的错误指针赋值
     if (error && !responseIsValid) {
         *error = validationError;
     }
-
+    //返回是否错误标识
     return responseIsValid;
 }
 
@@ -234,16 +255,21 @@ static id AFJSONObjectByRemovingKeysWithNullValues(id JSONObject, NSJSONReadingO
                            data:(NSData *)data
                           error:(NSError *__autoreleasing *)error
 {
+    //先判断是不是可接受类型和可接受code
     if (![self validateResponse:(NSHTTPURLResponse *)response data:data error:error]) {
+        //error为空, 或者有错误去函数里判断
         if (!error || AFErrorOrUnderlyingErrorHasCodeInDomain(*error, NSURLErrorCannotDecodeContentData, AFURLResponseSerializationErrorDomain)) {
+            //返回nil
             return nil;
         }
     }
 
     // Workaround for behavior of Rails to return a single space for `head :ok` (a workaround for a bug in Safari), which is not interpreted as valid input by NSJSONSerialization.
     // See https://github.com/rails/rails/issues/1742
+    //如果数据为空
     BOOL isSpace = [data isEqualToData:[NSData dataWithBytes:" " length:1]];
     
+    //不空则去json解析
     if (data.length == 0 || isSpace) {
         return nil;
     }
@@ -254,16 +280,17 @@ static id AFJSONObjectByRemovingKeysWithNullValues(id JSONObject, NSJSONReadingO
 
     if (!responseObject)
     {
+        //拿着json解析的error去填充错误信息
         if (error) {
             *error = AFErrorWithUnderlyingError(serializationError, *error);
         }
         return nil;
     }
-    
+    //判断是否需要移除Null值
     if (self.removesKeysWithNullValues) {
         return AFJSONObjectByRemovingKeysWithNullValues(responseObject, self.readingOptions);
     }
-
+    //返回解析结果
     return responseObject;
 }
 
