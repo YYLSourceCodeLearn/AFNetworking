@@ -1330,14 +1330,14 @@ didBecomeDownloadTask:(NSURLSessionDownloadTask *)downloadTask
 didFinishDownloadingToURL:(NSURL *)location
 {
     AFURLSessionManagerTaskDelegate *delegate = [self delegateForTask:downloadTask];
-    //这个是 session 的，也就是全局的，后面的个人代理也会做同样的这件事
+    //这个是session的,也就是全局的,后面的个人代理也会做同样的这件事
     if (self.downloadTaskDidFinishDownloading) {
-        //调用自定的 block 拿到文件存储的地址
+        //调用自定义的block拿到文件存储的地址
         NSURL *fileURL = self.downloadTaskDidFinishDownloading(session, downloadTask, location);
         if (fileURL) {
             delegate.downloadFileURL = fileURL;
             NSError *error = nil;
-            //从临时的下载路径移动至我们需要的路径
+            //从临时的下载路径移动至我们需要的路劲
             if (![[NSFileManager defaultManager] moveItemAtURL:location toURL:fileURL error:&error]) {
                 [[NSNotificationCenter defaultCenter] postNotificationName:AFURLSessionDownloadTaskDidFailToMoveFileNotification object:downloadTask userInfo:error.userInfo];
             }
@@ -1382,6 +1382,14 @@ totalBytesExpectedToWrite:(int64_t)totalBytesExpectedToWrite
 
 
 //当下载被取消或者失败后重新恢复下载时调用
+/*
+ 告诉代理,下载任务重新开始下载
+ 函数讨论:
+ 如果一个正在下载的任务被取消或者失败了,你可以请求一个resumeData对象(比如userInfo字典中通过NSURLSessionDownloadTaskResumeData这个建来获取到resumeData) 并使用它提供足够的信息以重新开始下载任务
+ 随后你可以使用resumeData作为downloadTaskWithResumeData:或downloadTaskWithResumeData:completionHandler:的参数. 当你调用这些方法时,你将开始一个新的下载任务. 一旦你继续下载任务,session会调用它的代理方法URLSession:downloadTask:didResumeAtOffset:expectedTotalBytes:其中的downloadTask参数表示的就是新的下载任务,这也就意味着下载任务重新开始
+ 
+ 这个是方法就是用来做断点续传的代理方法
+ */
 - (void)URLSession:(NSURLSession *)session
       downloadTask:(NSURLSessionDownloadTask *)downloadTask
  didResumeAtOffset:(int64_t)fileOffset
